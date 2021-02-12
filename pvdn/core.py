@@ -19,15 +19,20 @@ import cv2
 from pvdn.meta import CameraConfiguration, Category, ImageInformation, Annotation, SequenceInformation
 from pvdn.keypoints import Vehicle
 
+
 class PVDNDataset(Dataset):
     """ Base-Class to read and handle the PVDN dataset.
 
     The class expects the dataset in the same format as specified here:
     https://www.kaggle.com/saralajew/provident-vehicle-detection-at-night-pvdn
     """
-
-    def __init__(self, path: str, filters: List[Any] = [], transform: List[Any] = None,
-                 read_annots: bool = True, load_images: bool = True, keypoints_path: str = None):
+    def __init__(self,
+                 path: str,
+                 filters: List[Any] = [],
+                 transform: List[Any] = None,
+                 read_annots: bool = True,
+                 load_images: bool = True,
+                 keypoints_path: str = None):
         super(PVDNDataset, self).__init__()
 
         # init not affected instance vars
@@ -50,17 +55,23 @@ class PVDNDataset(Dataset):
         with open(self.sequences_file, "r") as s_file:
             seqs_dict = json.load(s_file)
 
-        self.sequences = [SequenceInformation(**seq_dict) for seq_dict in seqs_dict["sequences"]]
+        self.sequences = [
+            SequenceInformation(**seq_dict)
+            for seq_dict in seqs_dict["sequences"]
+        ]
 
         # read image annotations
-        self.annotation_path = os.path.join(self.labels_path, "image_annotations.json")
+        self.annotation_path = os.path.join(self.labels_path,
+                                            "image_annotations.json")
         with open(self.annotation_path, "r") as a_file:
             annots_dict = json.load(a_file)
 
         # add path for keypoints
-        self.keypoints_path = keypoints_path if keypoints_path else os.path.join(self.labels_path, "keypoints")
+        self.keypoints_path = keypoints_path if keypoints_path else os.path.join(
+            self.labels_path, "keypoints")
 
-        assert os.path.exists(self.keypoints_path), "This dataset contains no keypoints"
+        assert os.path.exists(
+            self.keypoints_path), "This dataset contains no keypoints"
 
         # parse dataset information
         self.info = annots_dict["info"]
@@ -69,17 +80,23 @@ class PVDNDataset(Dataset):
         self.licences = annots_dict["licences"]
 
         # get all camera configurations
-        self.cam_configs = [CameraConfiguration(cid=i, **cam_dict)
-                            for i, cam_dict in enumerate(annots_dict["camera_configurations"])]
+        self.cam_configs = [
+            CameraConfiguration(cid=i, **cam_dict)
+            for i, cam_dict in enumerate(annots_dict["camera_configurations"])
+        ]
 
         # get all possible categories
-        self.categories = [Category(**cat_dict) for cat_dict in annots_dict["categories"]]
+        self.categories = [
+            Category(**cat_dict) for cat_dict in annots_dict["categories"]
+        ]
 
         # read all image definitions and store them in list
         self.img_infos = {}
         for image_dict in annots_dict["images"]:
-            camera_config = self.cam_configs[image_dict["camera_configuration"]]
-            image_info = ImageInformation(camera_config=camera_config, **image_dict)
+            camera_config = self.cam_configs[
+                image_dict["camera_configuration"]]
+            image_info = ImageInformation(camera_config=camera_config,
+                                          **image_dict)
             self.img_infos[image_info.id] = image_info
 
         # create an additional array to hold all index mappings
@@ -138,36 +155,46 @@ class PVDNDataset(Dataset):
         return len(self.img_idx)
 
     def __getitem__(self, idx) -> Tuple[Any, ImageInformation, List[Vehicle]]:
+        if isinstance(idx, slice):
 
-        # retrieve metadata
-        info = self.img_infos[self.img_idx[idx]]
-        sequence_info = info.sequence
+            def slicegenerator():
+                for ii in range(*idx.indices(len(self))):
+                    yield self[int(ii)]
 
-        if self.load_images:
-            image_path = os.path.join(self.images_path, sequence_info.directory, info.file_name)
+            return slicegenerator()
+        elif isinstance(idx, int):
+            # retrieve metadata
+            info = self.img_infos[self.img_idx[idx]]
+            sequence_info = info.sequence
 
-            img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+            if self.load_images:
+                image_path = os.path.join(self.images_path,
+                                          sequence_info.directory,
+                                          info.file_name)
 
-            if self.transform is not None:
-                img = self.transform.transform(img)
-        else:
-            img = None
+                img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
 
-        # determine path where keypoints should be stored
-        kp_path = os.path.join(self.keypoints_path, "{:06d}.json".format(info.id))
+                if self.transform is not None:
+                    img = self.transform.transform(img)
+            else:
+                img = None
 
-        # check if keypoints are available and read them if necessary
-        vehicles = []
-        kp_dict = None
-        if os.path.exists(kp_path):
-            # read file
-            with open(kp_path, "r") as kp_file:
-                kp_dict = json.load(kp_file)
+            # determine path where keypoints should be stored
+            kp_path = os.path.join(self.keypoints_path,
+                                   "{:06d}.json".format(info.id))
 
-                # iterate over all vehicles
-                for vehicle_annot in kp_dict["annotations"]:
-                    vehicle = Vehicle()
-                    vehicle.from_dict(vehicle_annot)
-                    vehicles.append(vehicle)
+            # check if keypoints are available and read them if necessary
+            vehicles = []
+            kp_dict = None
+            if os.path.exists(kp_path):
+                # read file
+                with open(kp_path, "r") as kp_file:
+                    kp_dict = json.load(kp_file)
 
-        return img, info, vehicles
+                    # iterate over all vehicles
+                    for vehicle_annot in kp_dict["annotations"]:
+                        vehicle = Vehicle()
+                        vehicle.from_dict(vehicle_annot)
+                        vehicles.append(vehicle)
+
+            return img, info, vehicles
